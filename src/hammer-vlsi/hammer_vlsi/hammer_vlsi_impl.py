@@ -969,6 +969,134 @@ class HasCPFSupport(HammerTool):
         return "\n".join(output)
 
 
+class HammerFormalLECTool(HammerTool):
+    ### Generated interface HammerFormalLECTool ###
+    @property
+    def top_module(self) -> str:
+        """
+        Get the top-level module.
+
+        :return: The top-level module.
+        """
+        try:
+            return self.attr_getter("_top_module", None)
+        except AttributeError:
+            raise ValueError("Nothing set for the top-level module yet")
+
+    @top_module.setter
+    def top_module(self, value: str) -> None:
+        """Set the top-level module."""
+        if not isinstance(value, str):
+            raise TypeError("top_module must be a str")
+        self.attr_setter("_top_module", value)
+
+    @property
+    def reference(self) -> List[str]:
+        try:
+            return self.attr_getter("_reference", None)
+        except AttributeError:
+            raise ValueError("Nothing set for the reference verilog files")
+
+    @reference.setter
+    def reference(self, value: List[str]) -> None:
+        if not (isinstance(value, List)):
+            raise TypeError("reference must be a List[str]")
+        self.attr_setter("_reference", value)
+
+    @property
+    def implementation(self) -> List[str]:
+        try:
+            return self.attr_getter("_implementation", None)
+        except AttributeError:
+            raise ValueError("Nothing set for the implementation verilog files")
+
+    @implementation.setter
+    def implementation(self, value: List[str]) -> None:
+        if not (isinstance(value, List)):
+            raise TypeError("implementation must be a List[str]")
+        self.attr_setter("_implementation", value)
+
+
+class HammerPowerTool(HammerTool):
+    ### Generated interface HammerPowerTool ###
+    @property
+    def top_module(self) -> str:
+        """
+        Get the top-level module.
+
+        :return: The top-level module.
+        """
+        try:
+            return self.attr_getter("_top_module", None)
+        except AttributeError:
+            raise ValueError("Nothing set for the top-level module yet")
+
+    @top_module.setter
+    def top_module(self, value: str) -> None:
+        """Set the top-level module."""
+        if not isinstance(value, str):
+            raise TypeError("top_module must be a str")
+        self.attr_setter("_top_module", value)
+
+    @property
+    def input_files(self) -> List[str]:
+        """
+        Get the input collection of source RTL files (e.g. *.v).
+
+        :return: The input collection of source RTL files (e.g. *.v).
+        """
+        try:
+            return self.attr_getter("_input_files", None)
+        except AttributeError:
+            raise ValueError("Nothing set for the input collection of source RTL files (e.g. *.v) yet")
+
+    @input_files.setter
+    def input_files(self, value: List[str]) -> None:
+        """Set the input collection of source RTL files (e.g. *.v)."""
+        if not (isinstance(value, List)):
+            raise TypeError("input_files must be a List[str]")
+        self.attr_setter("_input_files", value)
+
+    @property
+    def waveform_files(self) -> List[str]:
+        """
+        Get the waveform files.
+
+        :return: The waveform files.
+        """
+        try:
+            return self.attr_getter("_waveform_files", None)
+        except AttributeError:
+            raise ValueError("Nothing set for the input waveform files yet")
+
+    @waveform_files.setter
+    def waveform_files(self, value: List[str]) -> None:
+        """
+        Set the waveform files for this tool library.
+        The exact nature of the files will depend on the type of library.
+        """
+        if not isinstance(value, Iterable):
+            raise TypeError("input_files must be a Iterable[str]")
+        self._waveform_files = value # type: Iterable[str]
+
+    def check_waveform_files(self, extensions: List[str]) -> bool:
+        """Verify that waveform files exist and have the specified extensions.
+
+        :param extensions: List of extensions e.g. [".vcd", ".vpd"]
+        :return: True if all files exist and have the specified extensions.
+        """
+        waveform_args = self.waveform_files
+        error = False
+        for w in waveform_args:
+            if not w.endswith(tuple(extensions)):
+                self.logger.error("Input of unsupported type {0} detected!".format(w))
+                error = True
+            if not os.path.isfile(w):
+                self.logger.error("Input file {0} does not exist!".format(w))
+                error = True
+        return not error
+
+
 class HasSDCSupport(HammerTool):
     """Mix-in trait with functions useful for tools with SDC-style
     constraints."""

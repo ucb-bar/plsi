@@ -19,7 +19,7 @@ import hammer_tech
 from .hammer_tool import HammerTool
 from .hooks import HammerToolHookAction
 from .hammer_vlsi_impl import HammerVLSISettings, HammerPlaceAndRouteTool, HammerSynthesisTool, \
-    HammerSignoffTool, HammerDRCTool, HammerLVSTool, HammerSRAMGeneratorTool, \
+    HammerSignoffTool, HammerDRCTool, HammerLVSTool, HammerSRAMGeneratorTool, HammerFormalTool, HammerPowerTool, HammerFormalLECTool, \
     HierarchicalMode, load_tool, PlacementConstraint, SRAMParameters
 from hammer_logging import HammerVLSIFileLogger, HammerVLSILogging, HammerVLSILoggingContext
 from .submit_command import HammerSubmitCommand
@@ -103,6 +103,8 @@ class HammerDriver:
         self.drc_tool = None  # type: Optional[HammerDRCTool]
         self.lvs_tool = None  # type: Optional[HammerLVSTool]
         self.sram_generator_tool = None  # type: Optional[HammerSRAMGeneratorTool]
+        self.formal_tool = None  # type: Optional[HammerFormalLECTool]
+        self.power_tool = None  # type: Optional[HammerPowerTool]
 
         # Initialize tool hooks. Used to specify resume/pause hooks after custom hooks have been registered.
         self.post_custom_syn_tool_hooks = []  # type: List[HammerToolHookAction]
@@ -110,6 +112,9 @@ class HammerDriver:
         self.post_custom_drc_tool_hooks = []  # type: List[HammerToolHookAction]
         self.post_custom_lvs_tool_hooks = []  # type: List[HammerToolHookAction]
         self.post_custom_sram_generator_tool_hooks = []  # type: List[HammerToolHookAction]
+        # Donggyu: do we need this for formal & power tools?
+        self.post_custom_formal_tool_hooks = []  # type: List[HammerToolHookAction]
+        self.post_custom_power_tool_hooks = []  # type: List[HammerToolHookAction]
 
     @property
     def project_config(self) -> dict:
@@ -452,6 +457,96 @@ class HammerDriver:
         self.update_tool_configs()
         return True
 
+    def load_formal_tool(self, run_dir: str = "") -> bool:
+        """
+        Load the formal verification tool based on the given database.
+
+        :param run_dir: Directory to use for the tool run_dir. Defaults to the run_dir passed in the HammerDriver
+                        constructor.
+        """
+        if self.tech is None:
+            self.log.error("Must load technology before loading par tool")
+            return False
+
+        if run_dir == "":
+            # Use the synthesis directory for formal tools
+            run_dir = os.path.join(self.obj_dir, "syn-rundir")
+
+        formal_tool_name = self.database.get_setting("vlsi.core.formal_tool")
+        formal_tool_get = load_tool(
+            path=self.database.get_setting("vlsi.core.formal_tool_path"),
+            tool_name=formal_tool_name
+        )
+        assert isinstance(formal_tool_get, HammerFormalLECTool), "Formal tool must be a HammerFormalLECTool"
+        formal_tool = formal_tool_get  # type: HammerFormalLECTool
+        formal_tool.name = formal_tool_name
+        formal_tool.logger = self.log.context("formal")
+        formal_tool.technology = self.tech
+        formal_tool.set_database(self.database)
+        formal_tool.submit_command = HammerSubmitCommand.get("formal", self.database)
+        formal_tool.run_dir = run_dir
+
+        formal_tool.top_module = self.database.get_setting("formal.inputs.top_module", nullvalue="")
+        formal_tool.reference = self.database.get_setting("formal.inputs.reference")
+        if not formal_tool.reference:
+            self.log.error("There must be reference files")
+            return False
+        formal_tool.implementation = self.database.get_setting("formal.inputs.implementation")
+        if not formal_tool.implementation:
+            self.log.error("There must be implementation files")
+            return False
+
+        self.formal_tool = formal_tool
+
+        self.tool_configs["formal"] = formal_tool.get_config()
+        self.update_tool_configs()
+        return True
+
+    def load_power_tool(self, run_dir: str = "") -> bool:
+        """
+        Load the power analysis tool based on the given database.
+
+        :param run_dir: Directory to use for the tool run_dir. Defaults to the run_dir passed in the HammerDriver
+                        constructor.
+        """
+        if self.tech is None:
+            self.log.error("Must load technology before loading par tool")
+            return False
+
+        if run_dir == "":
+            run_dir = os.path.join(self.obj_dir, "pwr-rundir")
+
+        power_tool_name = self.database.get_setting("vlsi.core.power_tool")
+        power_tool_get = load_tool(
+            path=self.database.get_setting("vlsi.core.power_tool_path"),
+            tool_name=power_tool_name
+        )
+        assert isinstance(power_tool_get, HammerPowerTool), "Power tool must be a HammerPowerTool"
+        power_tool = power_tool_get  # type: HammerPowerTool
+        power_tool.name = power_tool_name
+        power_tool.logger = self.log.context("power")
+        power_tool.technology = self.tech
+        power_tool.set_database(self.database)
+        power_tool.submit_command = HammerSubmitCommand.get("power", self.database)
+        power_tool.run_dir = run_dir
+
+        # TODO: better way to get input files?
+        power_tool.top_module = self.database.get_setting("power.inputs.top_module", nullvalue="")
+        power_tool.input_files = self.database.get_setting("power.inputs.input_files")
+        if len(power_tool.input_files) == 0:
+            self.log.error("No verilog files specified for power analysis tools")
+            return False
+        power_tool.waveform_files = self.database.get_setting("power.inputs.waveform_files")
+        if not len(power_tool.waveform_files) == 1:
+            self.log.error("There must be only one waveform file for power analysis tools")
+            return False
+
+        self.power_tool = power_tool
+
+        self.tool_configs["power"] = power_tool.get_config()
+        self.update_tool_configs()
+        return True
+
     def set_post_custom_syn_tool_hooks(self, hooks: List[HammerToolHookAction]) -> None:
         """
         Set the extra list of hooks used for control flow (resume/pause) in run_synthesis.
@@ -487,6 +582,15 @@ class HammerDriver:
         :param hooks: Hooks to run
         """
         self.post_custom_lvs_tool_hooks = list(hooks)
+
+    def set_post_custom_formal_tool_hooks(self, hooks: List[HammerToolHookAction]) -> None:
+        """
+        Set the extra list of hooks used for control flow (resume/pause) in run_par.
+        They will run after main/hook_actions.
+
+        :param hooks: Hooks to run
+        """
+        self.post_custom_formal_tool_hooks = list(hooks)
 
     def run_synthesis(self, hook_actions: Optional[List[HammerToolHookAction]] = None, force_override: bool = False) -> \
             Tuple[bool, dict]:
@@ -779,6 +883,86 @@ class HammerDriver:
         output_config = {}  # type: Dict[str, Any]
         try:
             output_config.update(self.sram_generator_tool.export_config_outputs())
+        except ValueError as e:
+            self.log.fatal(e.args[0])
+            return False, {}
+
+        return run_succeeded, output_config
+
+    def run_formal(self, hook_actions: Optional[List[HammerToolHookAction]] = None, force_override: bool = False) -> \
+            Tuple[bool, dict]:
+        """
+        Run formal check based on the given database.
+
+        :param hook_actions: List of hook actions, or leave as None to use the hooks sets in set_formal_hooks.
+                             Hooks from set_formal_hooks, if present, will be appended afterwards.
+        :param force_override: Set to true to overwrite instead of append.
+        :return: Tuple of (success, output config dict)
+        """
+        if self.formal_tool is None:
+            self.log.error("Must load formal tool before calling run_formal")
+            return False, {}
+
+        # TODO: think about artifact storage?
+        self.log.info("Starting formal check with tool '%s'" % (self.formal_tool.name))
+        if hook_actions is None:
+            hooks_to_use = self.post_custom_formal_tool_hooks
+        else:
+            if force_override:
+                hooks_to_use = hook_actions
+            else:
+                hooks_to_use = hook_actions + self.post_custom_formal_tool_hooks
+        run_succeeded = self.formal_tool.run(hooks_to_use)
+        if not run_succeeded:
+            self.log.error("Formal check tool %s failed! Please check its output." % self.formal_tool.name)
+            # Allow the flow to keep running, just in case.
+            # TODO: make this an option
+
+        # Record output from the formal_tool into the JSON output.
+        output_config = deepdict(self.project_config)
+        # TODO(edwardw): automate this
+        try:
+            output_config.update(self.formal_tool.export_config_outputs())
+        except ValueError as e:
+            self.log.fatal(e.args[0])
+            return False, {}
+
+        return run_succeeded, output_config
+
+    def run_power(self, hook_actions: Optional[List[HammerToolHookAction]] = None, force_override: bool = False) -> \
+            Tuple[bool, dict]:
+        """
+        Run power check based on the given database.
+
+        :param hook_actions: List of hook actions, or leave as None to use the hooks sets in set_power_hooks.
+                             Hooks from set_power_hooks, if present, will be appended afterwards.
+        :param force_override: Set to true to overwrite instead of append.
+        :return: Tuple of (success, output config dict)
+        """
+        if self.power_tool is None:
+            self.log.error("Must load power tool before calling run_power")
+            return False, {}
+
+        # TODO: think about artifact storage?
+        self.log.info("Starting power check with tool '%s'" % (self.power_tool.name))
+        if hook_actions is None:
+            hooks_to_use = self.post_custom_power_tool_hooks
+        else:
+            if force_override:
+                hooks_to_use = hook_actions
+            else:
+                hooks_to_use = hook_actions + self.post_custom_power_tool_hooks
+        run_succeeded = self.power_tool.run(hooks_to_use)
+        if not run_succeeded:
+            self.log.error("Power analysis tool %s failed! Please check its output." % self.power_tool.name)
+            # Allow the flow to keep running, just in case.
+            # TODO: make this an option
+
+        # Record output from the power_tool into the JSON output.
+        output_config = deepdict(self.project_config)
+        # TODO(edwardw): automate this
+        try:
+            output_config.update(self.power_tool.export_config_outputs())
         except ValueError as e:
             self.log.fatal(e.args[0])
             return False, {}
