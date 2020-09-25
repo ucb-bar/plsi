@@ -24,7 +24,7 @@ class SkywaterTech(HammerTechnology):
         try:
             import gdspy  # type: ignore
         except ImportError:
-            self.logger.error("Check your gdspy installation! Unable to hack ASAP7 PDK.")
+            self.logger.error("Couldn't import gdspy Python package, needed to merge Skywater gds.")
             shutil.rmtree(self.cache_dir)
             sys.exit()
         # make cache directories for all necessary lib files
